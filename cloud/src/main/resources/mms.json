@@ -1,0 +1,16 @@
+{
+	"event": "message-in",
+	"type": "command_mms",
+	"campaign_id": "54667",
+	"msisdn": "14152901974",
+	"shortcode": "343434",
+	"carrier": "AT&T",
+	"carrier_id": "3",
+	"message": "Mule",
+	"subject": "",
+	"images": [
+		{
+			"image": "http://d2c.bandcon.mogreet.com/mo-mms/images/6374b60c790afdd8ae87bfe249a8eb4a.jpeg"
+		}
+	]
+}

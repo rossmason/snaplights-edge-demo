@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:mqtt="http://www.mulesoft.org/schema/mule/mqtt" xmlns:https="http://www.mulesoft.org/schema/mule/https" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:hue="http://www.mulesoft.org/schema/mule/hue" xmlns:data-mapper="http://www.mulesoft.org/schema/mule/ee/data-mapper" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" version="EE-3.5.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/hue http://www.mulesoft.org/schema/mule/hue/1.0/mule-hue.xsd
+http://www.mulesoft.org/schema/mule/ee/data-mapper http://www.mulesoft.org/schema/mule/ee/data-mapper/current/mule-data-mapper.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/https http://www.mulesoft.org/schema/mule/https/current/mule-https.xsd
+http://www.mulesoft.org/schema/mule/mqtt http://www.mulesoft.org/schema/mule/mqtt/1.0/mule-mqtt.xsd">
+    
+    <https:connector name="HTTP_HTTPS" cookieSpec="netscape" validateConnections="true" sendBufferSize="0" receiveBufferSize="0" receiveBacklog="0" clientSoTimeout="10000" serverSoTimeout="10000" socketSoLinger="0" doc:name="HTTP-HTTPS"/>
+    
+    <mqtt:config name="MQTT" brokerServerUri="${mqtt.broker.url}" password="${mqtt.password}" username="${mqtt.username}" doc:name="MQTT" clientId="#['mule@'+server.ip]"  >
+        <mqtt:connection-pooling-profile initialisationPolicy="INITIALISE_ONE" exhaustedAction="WHEN_EXHAUSTED_WAIT" maxActive="1" maxIdle="1"/>
+    </mqtt:config>
+    
+    <flow name="snaplightsFlow1" doc:name="snaplightsFlow1">
+        <composite-source doc:name="Composite Source">
+            <http:inbound-endpoint exchange-pattern="one-way" host="localhost" port="${http.port}" doc:name="Receive MMS Callback"/>
+            <!-- <file:inbound-endpoint path="/Users/ross/Desktop/mule/in" moveToDirectory="/Users/ross/Desktop/mule/out" responseTimeout="10000" doc:name="File"/>
+ -->        </composite-source>
+        <logger message="#[groovy:message.getPayloadAsString()]" level="INFO" doc:name="Logger"/>
+        <component class="org.mule.examples.snaplights.ProcessMessage" doc:name="Process Message"/>
+        <choice doc:name="Choice">
+        	<when expression="#[payload.getType() == 'command_sms']">
+                <parse-template location="colors-message.template" doc:name="Parse Template"/>
+                <mqtt:publish config-ref="MQTT" topicName="home.livingroom.lights" doc:name="send to home.livingroom.lights"/>
+                <logger message="sent ot the devices: #[message.payloadAs(java.lang.String)]" level="INFO" doc:name="Logger"/>
+                <set-payload value="#['you just changed the lights with your phone, well done! Try txting a photo or smiley...']" doc:name="set response message to callee"/>
+                <https:outbound-endpoint exchange-pattern="one-way"   method="GET" doc:name="Send SMS to callee" address="https://api.mogreet.com/moms/transaction.send?client_id=${mogreet.client_id}&amp;token=${mogreet.token}&amp;campaign_id=${mogreet.campaign_id}&amp;to=#[flowVars['sender']]&amp;message=#[payload]" connector-ref="HTTP_HTTPS" mimeType="application/json"/>
+        	</when>
+            
+        	<otherwise>
+        <flow-ref name="processImage" doc:name="Process image"/>
+        	</otherwise>
+        </choice>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <set-payload value="#['uh-oh something went wrong, the lights were not changed. Boo hoo']" doc:name="set error message"/>
+            <https:outbound-endpoint exchange-pattern="request-response" method="GET" address="https://api.mogreet.com/moms/transaction.send?client_id=${mogreet.client_id}&amp;token=${mogreet.token}&amp;campaign_id=${mogreet.campaign_id}&amp;to=#[flowVars['sender']]&amp;message=#[payload]" doc:name="Send error SMS to callee"/>
+        </catch-exception-strategy>
+        
+    </flow>
+    
+    <!--  flow name="snaplightsFlow2" doc:name="snaplightsFlow2">
+        <file:inbound-endpoint path="/Users/ross/Desktop/mule/in" moveToDirectory="/Users/ross/Desktop/mule/out" responseTimeout="10000" doc:name="File">
+            <file:filename-regex-filter pattern=".*\.(jpg|png|gif|jpeg)$" caseSensitive="false"/>
+        </file:inbound-endpoint>
+        <flow-ref name="processImage" doc:name="Call Process Image"/>
+    </flow-->
+    
+    <sub-flow name="processImage" doc:name="processImage">
+        <expression-transformer
+            expression="#['image=' + new String(new org.apache.commons.codec.net.URLCodec().encode(flowVars['raw_image']))]" doc:name="Encode Image"/>
+
+        <set-property propertyName="Content-Type"
+            value="application/x-www-form-urlencoded" doc:name="Set Content type"/>
+
+        <http:outbound-endpoint address="http://pictaculous.com/api/1.0/"
+            method="POST" exchange-pattern="request-response" doc:name="Call Pictaculous"/>
+        <object-to-string-transformer doc:name="Object to String"/>
+        <mqtt:publish config-ref="MQTT" topicName="home.livingroom.lights" doc:name="send to home.livingroom.lights"/>
+        <logger message="sent ot the devices: #[message.payloadAs(java.lang.String)]" level="INFO" doc:name="Logger"/>
+       
+    </sub-flow>
+   
+</mule>

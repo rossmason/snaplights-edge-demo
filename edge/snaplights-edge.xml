@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:json="http://www.mulesoft.org/schema/mule/json"
+	xmlns:scripting="http://www.mulesoft.org/schema/mule/scripting"
+	xmlns:hue="http://www.mulesoft.org/schema/mule/hue" xmlns:mqtt="http://www.mulesoft.org/schema/mule/mqtt" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" version="EE-3.5.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/scripting http://www.mulesoft.org/schema/mule/scripting/current/mule-scripting.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/mqtt http://www.mulesoft.org/schema/mule/mqtt/1.0/mule-mqtt.xsd
+http://www.mulesoft.org/schema/mule/hue http://www.mulesoft.org/schema/mule/hue/1.0/mule-hue.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+
+    
+    <hue:config name="Philips_Hue" ipAddress="${hue.ipAddress}" username="${hue.username}" doc:name="Philips Hue"/>
+    <mqtt:config name="MQTT" brokerServerUri="${mqtt.broker.url}" password="${mqtt.password}" username="${mqtt.username}" doc:name="MQTT" clientId="lights-demo" connectionTimeout="300" keepAliveInterval="600">
+       
+    </mqtt:config>
+    
+    <flow name="setLightColours" doc:name="setLightColours">
+        <mqtt:subscribe topicFilter="home.livingroom.lights" config-ref="MQTT" doc:name="MQTT"/>
+        <logger message="Received: #[payload]" level="INFO" doc:name="Logger"/>
+        <enricher source="#[payload.size()]" target="#[variable:lightscounter]" doc:name="Message Enricher">
+            <flow-ref name="getConnectedLights" doc:name="Get Connected Lights"/>
+        </enricher>
+        <json:json-to-object-transformer returnClass="java.util.Map" doc:name="JSON to Object"/>
+        <expression-component doc:name="Index Colours"><![CDATA[colors = payload.info.colors;
+lc = flowVars['lightscounter'];
+
+if(lc > colors.size) {
+	x = colors.size;
+	for ( int i = x; i < lc; i++) {
+	    colors.add(colors[i-x]);
+	}
+}
+i = 0;
+foreach (c : colors) {
+  if (c==null) c = 'fff';
+  map.put(i, '#' + c);
+  log.info(map.get(i));
+  i++;
+}
+result = map]]></expression-component>
+        <foreach doc:name="For Each">
+            <hue:set-light-state config-ref="Philips_Hue" lightId="#[flowVars['counter']]" doc:name="Philips Hue">
+                <hue:state color="#[payload]"/>
+            </hue:set-light-state>
+        </foreach>
+    </flow>
+    
+    <sub-flow name="getConnectedLights" doc:name="getConnectedLights">
+        <hue:get-lights config-ref="Philips_Hue" doc:name="get connected lights"/>
+        <json:json-to-object-transformer returnClass="java.util.Map" doc:name="JSON to Object"/>
+    </sub-flow>
+    
+</mule>
